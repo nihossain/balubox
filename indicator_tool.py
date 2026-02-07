@@ -4,6 +4,7 @@ import numpy as np
 import pytesseract
 from PIL import Image
 import shutil
+import os
 
 # --- CONFIGURATION ---
 # Brightness Threshold:
@@ -11,10 +12,28 @@ import shutil
 # 0 = Black, 255 = White. 
 DEFAULT_BG_THRESHOLD = 140 
 
-def check_tesseract_availability():
-    """Checks if Tesseract is installed and in PATH."""
+def configure_tesseract():
+    """
+    Tries to locate Tesseract in PATH or common Homebrew locations.
+    Configures pytesseract to use the found path.
+    """
+    # 1. Check if 'tesseract' command works directly (is in PATH)
     if shutil.which('tesseract'):
         return True
+        
+    # 2. Check specific common paths on Mac
+    # Homebrew often puts it here on M1/M2/M3 Macs, but it's not always in the system PATH
+    possible_paths = [
+        '/opt/homebrew/bin/tesseract', # Apple Silicon Macs
+        '/usr/local/bin/tesseract',    # Intel Macs
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            # Tell the library exactly where it is
+            pytesseract.pytesseract.tesseract_cmd = path
+            return True
+            
     return False
 
 def analyze_with_ocr_and_segmentation(image_file, bg_threshold):
@@ -64,7 +83,11 @@ def analyze_with_ocr_and_segmentation(image_file, bg_threshold):
     # 6. OPTICAL CHARACTER RECOGNITION (OCR)
     # We use the thresholded image for cleaner OCR
     # Configuration: --psm 6 assumes a single uniform block of text
-    text_found = pytesseract.image_to_string(mask, config='--psm 6')
+    try:
+        text_found = pytesseract.image_to_string(mask, config='--psm 6')
+    except Exception as e:
+        text_found = ""
+        st.warning(f"OCR Warning: {e}")
     
     # Clean text (remove whitespace, uppercase)
     clean_text = text_found.strip().upper()
@@ -107,11 +130,17 @@ st.set_page_config(page_title="Indicator OCR Tool", page_icon="👁️")
 
 st.title("👁️ Indicator Analysis (OCR + Segmentation)")
 
-# Dependency Check
-if not check_tesseract_availability():
+# Dependency Check - Use the new robust configuration function
+if not configure_tesseract():
     st.error("❌ **Tesseract OCR not found!**")
-    st.info("Please install Tesseract on your Mac by running this in Terminal:")
-    st.code("brew install tesseract", language="bash")
+    st.markdown("""
+    The tool couldn't find the Tesseract application. 
+    
+    **To fix this on Mac:**
+    1. Open Terminal.
+    2. Run: `brew install tesseract`
+    3. If you installed it but still see this, restart the terminal/script.
+    """)
     st.stop()
 
 st.markdown("Uses **Otsu's Segmentation** to isolate the background and **Tesseract OCR** to read the text.")
